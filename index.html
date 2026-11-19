@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Mis Viajes">
   <link rel="apple-touch-icon" href="icon.png">
-  <meta name="theme-color" content="#0F172A">
+  <meta name="theme-color" content="#070B14">
 
   <!-- Librerías del mapa vectorial (D3 + TopoJSON) -->
   <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
@@ -19,7 +19,7 @@
 
   <style>
     :root {
-      --bg-ocean: #0F172A;
+      --bg-space: #070B14;
       --bg-surface: #1E293B;
       --bg-surface-hover: #283548;
       --border: #334155;
@@ -47,7 +47,7 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background-color: var(--bg-ocean);
+      background-color: var(--bg-space);
       color: var(--text-main);
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
     }
@@ -63,12 +63,12 @@
       display: flex;
     }
 
-    /* --- VISTA MAPA --- */
+    /* --- VISTA GLOBO 3D --- */
     #map-container {
       width: 100%;
       height: 100%;
       position: relative;
-      background: radial-gradient(circle at center, #13203b 0%, #0F172A 100%);
+      background: radial-gradient(circle at 50% 45%, #111D35 0%, #070B14 75%);
     }
 
     svg#world-map {
@@ -76,13 +76,24 @@
       height: 100%;
       touch-action: none;
       display: block;
+      cursor: grab;
+    }
+    svg#world-map:active {
+      cursor: grabbing;
+    }
+
+    .graticule {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.055);
+      stroke-width: 0.6px;
+      pointer-events: none;
     }
 
     .country {
       fill: var(--c-none);
-      stroke: #0F172A;
-      stroke-width: 0.5px;
-      transition: fill 0.2s ease, opacity 0.2s ease;
+      stroke: #0B1221;
+      stroke-width: 0.55px;
+      transition: fill 0.2s ease;
       cursor: pointer;
     }
     .country.status-visited { fill: var(--c-visited); }
@@ -90,7 +101,7 @@
     .country.status-lived { fill: var(--c-lived); }
     .country.selected {
       stroke: #FFFFFF;
-      stroke-width: 1.2px;
+      stroke-width: 1.3px;
     }
 
     /* Barra superior flotante */
@@ -110,7 +121,7 @@
 
     .pill {
       pointer-events: auto;
-      background: rgba(30, 41, 59, 0.85);
+      background: rgba(30, 41, 59, 0.82);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -119,7 +130,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
       font-size: 14px;
       font-weight: 600;
     }
@@ -143,7 +154,7 @@
       height: 42px;
       border-radius: 50%;
       border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(30, 41, 59, 0.85);
+      background: rgba(30, 41, 59, 0.82);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       color: var(--text-main);
@@ -151,7 +162,7 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     }
     .icon-btn:active { transform: scale(0.94); }
 
@@ -176,7 +187,7 @@
     .legend-item { display: flex; align-items: center; gap: 5px; }
     .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
-    /* Botón recentrar mapa */
+    /* Botón recentrar globo */
     .reset-zoom-btn {
       position: fixed;
       bottom: calc(var(--safe-bottom) + 78px);
@@ -189,7 +200,7 @@
     .search-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 23, 42, 0.92);
+      background: rgba(7, 11, 20, 0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       z-index: 50;
@@ -254,7 +265,7 @@
       z-index: 45;
       transform: translateY(105%);
       transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
-      box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.55);
     }
     .bottom-sheet.open { transform: translateY(0); }
 
@@ -433,7 +444,7 @@
     }
     .chip.active {
       background: var(--text-main);
-      color: var(--bg-ocean);
+      color: var(--bg-space);
       border-color: var(--text-main);
     }
 
@@ -502,7 +513,7 @@
       bottom: 0;
       left: 0;
       right: 0;
-      background: rgba(15, 23, 42, 0.9);
+      background: rgba(7, 11, 20, 0.9);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border-top: 1px solid rgba(255, 255, 255, 0.08);
@@ -555,13 +566,14 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.3s ease;
+      white-space: nowrap;
     }
     .capture-toast.show { opacity: 1; }
   </style>
 </head>
 <body>
 
-  <!-- VISTA 1: MAPA -->
+  <!-- VISTA 1: GLOBO 3D -->
   <section id="view-map" class="view active">
     <div id="map-container">
       <svg id="world-map"></svg>
@@ -588,7 +600,7 @@
       <div class="legend-item"><span class="legend-dot" style="background:var(--c-wishlist)"></span>Quiero ir</div>
     </div>
 
-    <button class="icon-btn reset-zoom-btn" onclick="resetZoom()" aria-label="Centrar mapa">
+    <button class="icon-btn reset-zoom-btn" onclick="resetZoom()" aria-label="Centrar globo">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
     </button>
   </section>
@@ -691,8 +703,8 @@
   <!-- MENÚ INFERIOR -->
   <nav class="bottom-nav">
     <button class="nav-btn active" id="nav-map" onclick="switchTab('map')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-      Mapa
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      Globo
     </button>
     <button class="nav-btn" id="nav-stats" onclick="switchTab('stats')">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -771,7 +783,13 @@
     let userData = loadData();
     let currentCountryId = null;
     let currentListFilter = "all";
-    let svg, g, projection, path, zoom, featuresMap = {};
+
+    // Variables del Globo 3D
+    let svg, projection, path, baseScale, cx, cy;
+    let haloCircle, spherePath, graticulePath, countriesSelection;
+    let featuresMap = {};
+    let isDragging = false;
+    let dragDistance = 0;
 
     function getFlag(iso2) {
       return iso2.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0)));
@@ -794,50 +812,103 @@
       return userData[id]?.status || "none";
     }
 
-    // --- INICIALIZAR MAPA D3 ---
+    // --- INICIALIZAR GLOBO 3D (D3 ORTHOGRAPHIC) ---
     async function initMap() {
       const container = document.getElementById("map-container");
       const width = container.clientWidth;
       const height = container.clientHeight;
+      cx = width / 2;
+      cy = height / 2;
+      baseScale = Math.min(width, height) * 0.44;
 
       svg = d3.select("#world-map")
         .attr("viewBox", [0, 0, width, height]);
 
-      g = svg.append("g");
+      // Definiciones de degradados para efecto 3D y atmósfera
+      const defs = svg.append("defs");
 
-      projection = d3.geoNaturalEarth1()
-        .scale(Math.min(width / 4.2, height / 3.2))
-        .translate([width / 2, height / 2]);
+      const oceanGrad = defs.append("radialGradient")
+        .attr("id", "ocean-gradient")
+        .attr("cx", "38%").attr("cy", "34%").attr("r", "68%");
+      oceanGrad.append("stop").attr("offset", "0%").attr("stop-color", "#1E3A5F");
+      oceanGrad.append("stop").attr("offset", "55%").attr("stop-color", "#0F1E36");
+      oceanGrad.append("stop").attr("offset", "100%").attr("stop-color", "#08101E");
+
+      const haloGrad = defs.append("radialGradient")
+        .attr("id", "halo-gradient")
+        .attr("cx", "50%").attr("cy", "50%").attr("r", "50%");
+      haloGrad.append("stop").attr("offset", "82%").attr("stop-color", "#38BDF8").attr("stop-opacity", "0.14");
+      haloGrad.append("stop").attr("offset", "100%").attr("stop-color", "#38BDF8").attr("stop-opacity", "0");
+
+      const rimGrad = defs.append("radialGradient")
+        .attr("id", "rim-shading")
+        .attr("cx", "35%").attr("cy", "30%").attr("r", "70%");
+      rimGrad.append("stop").attr("offset", "65%").attr("stop-color", "#000000").attr("stop-opacity", "0");
+      rimGrad.append("stop").attr("offset", "100%").attr("stop-color", "#000000").attr("stop-opacity", "0.42");
+
+      // Proyección esférica centrada inicialmente en Europa
+      projection = d3.geoOrthographic()
+        .scale(baseScale)
+        .translate([cx, cy])
+        .rotate([-10, -40, 0])
+        .clipAngle(90);
 
       path = d3.geoPath().projection(projection);
 
-      zoom = d3.zoom()
-        .scaleExtent([1, 14])
-        .on("zoom", (event) => {
-          g.attr("transform", event.transform);
-          g.selectAll(".country").style("stroke-width", (0.5 / Math.sqrt(event.transform.k)) + "px");
-        });
+      // Halo exterior atmosférico
+      haloCircle = svg.append("circle")
+        .attr("cx", cx)
+        .attr("cy", cy)
+        .attr("r", baseScale * 1.12)
+        .attr("fill", "url(#halo-gradient)")
+        .style("pointer-events", "none");
 
-      svg.call(zoom);
+      // Esfera del océano
+      spherePath = svg.append("path")
+        .datum({ type: "Sphere" })
+        .attr("d", path)
+        .attr("fill", "url(#ocean-gradient)")
+        .attr("stroke", "rgba(56, 189, 248, 0.22)")
+        .attr("stroke-width", 1.2);
 
-      // Salir de modo captura al tocar el mapa
+      // Cuadrícula geográfica (meridianos y paralelos)
+      graticulePath = svg.append("path")
+        .datum(d3.geoGraticule10())
+        .attr("class", "graticule")
+        .attr("d", path);
+
+      // Grupo de países
+      const countriesGroup = svg.append("g").attr("id", "countries-layer");
+
+      // Capa de sombreado esférico encima para dar volumen 3D
+      const rimCircle = svg.append("circle")
+        .attr("id", "rim-circle")
+        .attr("cx", cx)
+        .attr("cy", cy)
+        .attr("r", baseScale)
+        .attr("fill", "url(#rim-shading)")
+        .style("pointer-events", "none");
+
+      // Salir de modo captura al tocar el fondo
       svg.on("click", () => {
+        if (dragDistance > 6) return;
         if (document.body.classList.contains("capture-mode")) {
           document.body.classList.remove("capture-mode");
         }
       });
 
+      setupGlobeInteractions();
+
       try {
         const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
-        const countriesGeo = topojson.feature(world, world.objects.countries).features
-          .filter(d => String(d.id).padStart(3, "0") !== "010"); // Excluir Antártida
+        const countriesGeo = topojson.feature(world, world.objects.countries).features;
 
         countriesGeo.forEach(f => {
           const id = String(f.id).padStart(3, "0");
           if (COUNTRIES[id]) featuresMap[id] = f;
         });
 
-        g.selectAll("path")
+        countriesSelection = countriesGroup.selectAll("path")
           .data(countriesGeo)
           .join("path")
           .attr("d", path)
@@ -847,6 +918,7 @@
             return "country status-" + getStatus(id);
           })
           .on("click", (event, d) => {
+            if (dragDistance > 6) return;
             if (document.body.classList.contains("capture-mode")) {
               document.body.classList.remove("capture-mode");
               event.stopPropagation();
@@ -859,34 +931,128 @@
             }
           });
       } catch (e) {
-        showToast("Conéctate a internet la primera vez para cargar el mapa");
+        showToast("Conéctate a internet la primera vez para cargar el globo");
       }
 
       updateCounters();
     }
 
+    function renderGlobe() {
+      const currentScale = projection.scale();
+      spherePath.attr("d", path);
+      graticulePath.attr("d", path);
+      if (countriesSelection) {
+        countriesSelection.attr("d", path);
+      }
+      haloCircle.attr("r", currentScale * 1.12);
+      d3.select("#rim-circle").attr("r", currentScale);
+    }
+
+    function setupGlobeInteractions() {
+      const svgNode = document.getElementById("world-map");
+      let pinchStartDist = 0;
+      let pinchStartScale = baseScale;
+      let isPinching = false;
+
+      // Arrastre con 1 dedo o ratón para rotar el globo
+      const drag = d3.drag()
+        .on("start", () => {
+          svg.interrupt();
+          isDragging = true;
+          dragDistance = 0;
+        })
+        .on("drag", (event) => {
+          if (isPinching) return;
+          dragDistance += Math.hypot(event.dx, event.dy);
+          const rotate = projection.rotate();
+          const sensitivity = 75 / projection.scale();
+          const nextLambda = rotate[0] + event.dx * sensitivity;
+          const nextPhi = Math.max(-80, Math.min(80, rotate[1] - event.dy * sensitivity));
+          projection.rotate([nextLambda, nextPhi, 0]);
+          renderGlobe();
+        })
+        .on("end", () => {
+          isDragging = false;
+        });
+
+      svg.call(drag);
+
+      // Zoom con dos dedos (pinch-to-zoom) en móvil
+      svgNode.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 2) {
+          svg.interrupt();
+          isPinching = true;
+          dragDistance = 99;
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          pinchStartDist = Math.hypot(dx, dy);
+          pinchStartScale = projection.scale();
+        }
+      }, { passive: true });
+
+      svgNode.addEventListener("touchmove", (e) => {
+        if (e.touches.length === 2 && isPinching) {
+          e.preventDefault();
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          if (pinchStartDist > 0) {
+            const nextScale = Math.max(baseScale * 0.72, Math.min(baseScale * 6.5, pinchStartScale * (dist / pinchStartDist)));
+            projection.scale(nextScale);
+            renderGlobe();
+          }
+        }
+      }, { passive: false });
+
+      svgNode.addEventListener("touchend", (e) => {
+        if (e.touches.length < 2) {
+          isPinching = false;
+        }
+      }, { passive: true });
+
+      // Rueda del ratón (útil si lo abres en el ordenador)
+      svgNode.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.12 : 0.89;
+        const nextScale = Math.max(baseScale * 0.72, Math.min(baseScale * 6.5, projection.scale() * factor));
+        projection.scale(nextScale);
+        renderGlobe();
+      }, { passive: false });
+    }
+
     function resetZoom() {
-      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+      const startRotate = projection.rotate();
+      const targetRotate = [-10, -40, 0];
+      const startScale = projection.scale();
+
+      svg.transition().duration(650).ease(d3.easeCubicOut).tween("reset", () => {
+        const r = d3.interpolate(startRotate, targetRotate);
+        const s = d3.interpolate(startScale, baseScale);
+        return (t) => {
+          projection.rotate(r(t)).scale(s(t));
+          renderGlobe();
+        };
+      });
     }
 
     function zoomToCountry(id) {
       const feature = featuresMap[id];
       if (!feature) return;
-      const container = document.getElementById("map-container");
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-      const [[x0, y0], [x1, y1]] = path.bounds(feature);
-      const dx = x1 - x0;
-      const dy = y1 - y0;
-      const x = (x0 + x1) / 2;
-      const y = (y0 + y1) / 2;
-      const scale = Math.max(1.5, Math.min(8, 0.55 / Math.max(dx / width, dy / height)));
-      const translate = [width / 2 - scale * x, height / 2.3 - scale * y];
+      const centroid = d3.geoCentroid(feature);
+      const startRotate = projection.rotate();
+      // Desplaza ligeramente hacia arriba para que no lo tape la tarjeta inferior
+      const targetRotate = [-centroid[0], Math.max(-80, Math.min(80, -centroid[1] - 6)), 0];
+      const startScale = projection.scale();
+      const targetScale = Math.max(startScale, baseScale * 2.1);
 
-      svg.transition().duration(600).call(
-        zoom.transform,
-        d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
-      );
+      svg.transition().duration(750).ease(d3.easeCubicInOut).tween("rotateTo", () => {
+        const r = d3.interpolate(startRotate, targetRotate);
+        const s = d3.interpolate(startScale, targetScale);
+        return (t) => {
+          projection.rotate(r(t)).scale(s(t));
+          renderGlobe();
+        };
+      });
     }
 
     // --- TARJETA DE PAÍS (BOTTOM SHEET) ---
@@ -1106,7 +1272,7 @@
     function enterCaptureMode() {
       closeSheet();
       document.body.classList.add("capture-mode");
-      showToast("Modo captura: toca el mapa para salir");
+      showToast("Modo captura: toca el globo para salir");
     }
 
     // --- COPIA DE SEGURIDAD ---
@@ -1128,7 +1294,6 @@
         if (typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
         userData = parsed;
         saveData();
-        // Repintar mapa
         d3.selectAll(".country").attr("class", function() {
           const id = this.id.replace("c-", "");
           return "country status-" + getStatus(id);
