@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Mi Mapa de Viajes</title>
+
+  <!-- Configuración PWA para iOS -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mis Viajes">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta name="theme-color" content="#0F172A">
+
+  <!-- Librerías del mapa vectorial (D3 + TopoJSON) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+
+  <style>
+    :root {
+      --bg-ocean: #0F172A;
+      --bg-surface: #1E293B;
+      --bg-surface-hover: #283548;
+      --border: #334155;
+      --text-main: #F8FAFC;
+      --text-muted: #94A3B8;
+
+      --c-none: #334155;
+      --c-visited: #10B981;
+      --c-wishlist: #38BDF8;
+      --c-lived: #A855F7;
+
+      --safe-top: env(safe-area-inset-top, 12px);
+      --safe-bottom: env(safe-area-inset-bottom, 12px);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-ocean);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+    }
+
+    /* Vistas principales */
+    .view {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+    }
+    .view.active {
+      display: flex;
+    }
+
+    /* --- VISTA MAPA --- */
+    #map-container {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      background: radial-gradient(circle at center, #13203b 0%, #0F172A 100%);
+    }
+
+    svg#world-map {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      display: block;
+    }
+
+    .country {
+      fill: var(--c-none);
+      stroke: #0F172A;
+      stroke-width: 0.5px;
+      transition: fill 0.2s ease, opacity 0.2s ease;
+      cursor: pointer;
+    }
+    .country.status-visited { fill: var(--c-visited); }
+    .country.status-wishlist { fill: var(--c-wishlist); }
+    .country.status-lived { fill: var(--c-lived); }
+    .country.selected {
+      stroke: #FFFFFF;
+      stroke-width: 1.2px;
+    }
+
+    /* Barra superior flotante */
+    .top-bar {
+      position: fixed;
+      top: calc(var(--safe-top) + 10px);
+      left: 16px;
+      right: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      z-index: 20;
+      pointer-events: none;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .pill {
+      pointer-events: auto;
+      background: rgba(30, 41, 59, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--c-visited);
+      box-shadow: 0 0 8px var(--c-visited);
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .icon-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(30, 41, 59, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .icon-btn:active { transform: scale(0.94); }
+
+    /* Leyenda discreta */
+    .map-legend {
+      position: fixed;
+      bottom: calc(var(--safe-bottom) + 78px);
+      left: 16px;
+      background: rgba(30, 41, 59, 0.78);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 8px 12px;
+      display: flex;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      z-index: 15;
+      transition: opacity 0.3s ease;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* Botón recentrar mapa */
+    .reset-zoom-btn {
+      position: fixed;
+      bottom: calc(var(--safe-bottom) + 78px);
+      right: 16px;
+      z-index: 15;
+      transition: opacity 0.3s ease;
+    }
+
+    /* Buscador rápido flotante */
+    .search-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      padding: calc(var(--safe-top) + 12px) 16px 20px;
+    }
+    .search-overlay.open { display: flex; }
+
+    .search-header {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .search-input {
+      flex: 1;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 16px;
+      color: var(--text-main);
+      font-size: 16px;
+      outline: none;
+      user-select: text;
+    }
+    .search-input:focus { border-color: var(--c-wishlist); }
+
+    .search-results {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* --- BOTTOM SHEET (TARJETA DE PAÍS) --- */
+    .sheet-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 40;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .sheet-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .bottom-sheet {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-surface);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px 24px 0 0;
+      padding: 12px 20px calc(var(--safe-bottom) + 20px);
+      z-index: 45;
+      transform: translateY(105%);
+      transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+      box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+    }
+    .bottom-sheet.open { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 40px;
+      height: 4px;
+      background: #475569;
+      border-radius: 99px;
+      margin: 0 auto 16px;
+    }
+
+    .sheet-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .country-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .country-flag { font-size: 32px; line-height: 1; }
+    .country-name { font-size: 20px; font-weight: 700; margin: 0; }
+    .country-cont { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .status-btn {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1.5px solid var(--border);
+      color: var(--text-muted);
+      padding: 12px 10px;
+      border-radius: 14px;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .status-btn.active-none { border-color: #64748B; background: rgba(100, 116, 139, 0.2); color: #fff; }
+    .status-btn.active-visited { border-color: var(--c-visited); background: rgba(16, 185, 129, 0.18); color: var(--c-visited); }
+    .status-btn.active-wishlist { border-color: var(--c-wishlist); background: rgba(56, 189, 248, 0.18); color: var(--c-wishlist); }
+    .status-btn.active-lived { border-color: var(--c-lived); background: rgba(168, 85, 247, 0.18); color: var(--c-lived); }
+
+    .notes-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .field-input {
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      color: var(--text-main);
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      user-select: text;
+    }
+    .field-input:focus { border-color: var(--c-wishlist); }
+    #country-year { width: 92px; text-align: center; }
+    #country-note { width: 100%; resize: none; height: 68px; }
+
+    /* --- VISTAS ESTADÍSTICAS Y LISTA --- */
+    .scroll-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: calc(var(--safe-top) + 16px) 18px calc(var(--safe-bottom) + 90px);
+    }
+
+    .page-title {
+      font-size: 26px;
+      font-weight: 800;
+      margin: 0 0 18px;
+      letter-spacing: -0.5px;
+    }
+
+    .stats-cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--bg-surface);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      padding: 16px;
+    }
+    .stat-card.wide {
+      grid-column: span 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(30, 41, 59, 0.95));
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .stat-num { font-size: 28px; font-weight: 800; line-height: 1.1; }
+    .stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin: 20px 0 12px;
+    }
+
+    .cont-card {
+      background: var(--bg-surface);
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .cont-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .progress-track {
+      height: 8px;
+      background: rgba(15, 23, 42, 0.7);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--c-visited);
+      border-radius: 99px;
+      transition: width 0.4s ease;
+    }
+
+    /* Filtros de lista */
+    .filter-chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 12px;
+      margin-bottom: 8px;
+      scrollbar-width: none;
+    }
+    .filter-chips::-webkit-scrollbar { display: none; }
+
+    .chip {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .chip.active {
+      background: var(--text-main);
+      color: var(--bg-ocean);
+      border-color: var(--text-main);
+    }
+
+    .country-row {
+      background: var(--bg-surface);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 14px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .country-row:active { background: var(--bg-surface-hover); }
+    .row-left { display: flex; align-items: center; gap: 12px; }
+    .row-flag { font-size: 24px; }
+    .row-name { font-size: 15px; font-weight: 600; }
+    .row-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    .badge-visited { background: rgba(16, 185, 129, 0.18); color: var(--c-visited); }
+    .badge-wishlist { background: rgba(56, 189, 248, 0.18); color: var(--c-wishlist); }
+    .badge-lived { background: rgba(168, 85, 247, 0.18); color: var(--c-lived); }
+    .badge-none { background: rgba(148, 163, 184, 0.12); color: var(--text-muted); }
+
+    /* Caja de copia de seguridad */
+    .backup-box {
+      background: var(--bg-surface);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      padding: 16px;
+      margin-top: 24px;
+    }
+    .btn-primary {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: none;
+      background: var(--c-visited);
+      color: #06281E;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    .btn-secondary {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-main);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* --- MENÚ INFERIOR (3 PESTAÑAS) --- */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-around;
+      padding: 10px 8px calc(var(--safe-bottom) + 6px);
+      z-index: 30;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+
+    .nav-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 16px;
+    }
+    .nav-btn.active { color: var(--c-visited); }
+
+    /* --- MODO CAPTURA --- */
+    body.capture-mode .top-bar,
+    body.capture-mode .bottom-nav,
+    body.capture-mode .reset-zoom-btn {
+      opacity: 0;
+      pointer-events: none;
+    }
+    body.capture-mode .map-legend {
+      bottom: calc(var(--safe-bottom) + 20px);
+    }
+
+    .capture-toast {
+      position: fixed;
+      top: calc(var(--safe-top) + 18px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .capture-toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <!-- VISTA 1: MAPA -->
+  <section id="view-map" class="view active">
+    <div id="map-container">
+      <svg id="world-map"></svg>
+    </div>
+
+    <div class="top-bar">
+      <div class="pill" onclick="switchTab('stats')">
+        <span class="pill-dot"></span>
+        <span id="top-counter">0 / 195 · 0%</span>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" onclick="openSearch()" aria-label="Buscar país">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+        <button class="icon-btn" onclick="enterCaptureMode()" aria-label="Modo captura">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="map-legend">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--c-visited)"></span>Visitado</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--c-lived)"></span>Vivido</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--c-wishlist)"></span>Quiero ir</div>
+    </div>
+
+    <button class="icon-btn reset-zoom-btn" onclick="resetZoom()" aria-label="Centrar mapa">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+  </section>
+
+  <!-- VISTA 2: ESTADÍSTICAS -->
+  <section id="view-stats" class="view">
+    <div class="scroll-content">
+      <h1 class="page-title">Estadísticas</h1>
+      <div class="stats-cards">
+        <div class="stat-card wide">
+          <div>
+            <div class="stat-num" id="stat-percent" style="color:var(--c-visited)">0%</div>
+            <div class="stat-label">Del mundo visitado (<span id="stat-total-visited">0</span> de 195 países)</div>
+          </div>
+          <div style="font-size:36px">🌍</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-wishlist" style="color:var(--c-wishlist)">0</div>
+          <div class="stat-label">Quiero ir</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-lived" style="color:var(--c-lived)">0</div>
+          <div class="stat-label">He vivido</div>
+        </div>
+      </div>
+
+      <div class="section-title">Por continente</div>
+      <div id="continent-stats"></div>
+    </div>
+  </section>
+
+  <!-- VISTA 3: LISTA Y AJUSTES -->
+  <section id="view-list" class="view">
+    <div class="scroll-content">
+      <h1 class="page-title">Países y Ajustes</h1>
+      <input type="text" id="list-search" class="search-input" style="width:100%; margin-bottom:12px;" placeholder="Filtrar país..." oninput="renderList()">
+
+      <div class="filter-chips" id="filter-chips">
+        <button class="chip active" data-filter="all" onclick="setListFilter('all', this)">Todos</button>
+        <button class="chip" data-filter="visited" onclick="setListFilter('visited', this)">Visitados</button>
+        <button class="chip" data-filter="lived" onclick="setListFilter('lived', this)">He vivido</button>
+        <button class="chip" data-filter="wishlist" onclick="setListFilter('wishlist', this)">Quiero ir</button>
+        <button class="chip" data-filter="none" onclick="setListFilter('none', this)">Sin visitar</button>
+      </div>
+
+      <div id="countries-list"></div>
+
+      <div class="backup-box">
+        <div class="section-title" style="margin-top:0">Copia de seguridad</div>
+        <p style="font-size:13px; color:var(--text-muted); margin:0 0 12px; line-height:1.4;">
+          Tus datos se guardan en la memoria de tu iPhone. Copia este código y guárdalo en tus Notas si quieres tener un respaldo.
+        </p>
+        <button class="btn-primary" onclick="copyBackup()">Copiar copia de seguridad</button>
+        <textarea id="restore-input" class="field-input" style="width:100%; height:64px; margin-bottom:8px;" placeholder="Pega aquí tu copia para restaurar..."></textarea>
+        <button class="btn-secondary" onclick="restoreBackup()">Restaurar desde texto</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- BUSCADOR RÁPIDO (OVERLAY) -->
+  <div id="search-overlay" class="search-overlay">
+    <div class="search-header">
+      <input type="text" id="quick-search-input" class="search-input" placeholder="Buscar país (ej. Polonia, Malta...)" oninput="renderQuickSearch()">
+      <button class="icon-btn" onclick="closeSearch()">✕</button>
+    </div>
+    <div id="quick-search-results" class="search-results"></div>
+  </div>
+
+  <!-- TARJETA INFERIOR DE PAÍS (BOTTOM SHEET) -->
+  <div id="sheet-backdrop" class="sheet-backdrop" onclick="closeSheet()"></div>
+  <div id="bottom-sheet" class="bottom-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div class="country-title-wrap">
+        <span id="sheet-flag" class="country-flag">🇪🇸</span>
+        <div>
+          <h2 id="sheet-name" class="country-name">España</h2>
+          <div id="sheet-cont" class="country-cont">Europa</div>
+        </div>
+      </div>
+      <button class="icon-btn" style="width:34px;height:34px;" onclick="closeSheet()">✕</button>
+    </div>
+
+    <div class="status-grid">
+      <button class="status-btn" id="btn-visited" onclick="setCountryStatus('visited')">✓ Visitado</button>
+      <button class="status-btn" id="btn-wishlist" onclick="setCountryStatus('wishlist')">★ Quiero ir</button>
+      <button class="status-btn" id="btn-lived" onclick="setCountryStatus('lived')">⌂ He vivido</button>
+      <button class="status-btn" id="btn-none" onclick="setCountryStatus('none')">✕ Sin visitar</button>
+    </div>
+
+    <div class="notes-row">
+      <input type="text" id="country-year" class="field-input" placeholder="Año" maxlength="12" oninput="saveCountryMeta()">
+      <textarea id="country-note" class="field-input" placeholder="Notas del viaje (ciudades, recuerdos...)" oninput="saveCountryMeta()"></textarea>
+    </div>
+  </div>
+
+  <!-- AVISO FLOTANTE -->
+  <div id="toast" class="capture-toast"></div>
+
+  <!-- MENÚ INFERIOR -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" id="nav-map" onclick="switchTab('map')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+      Mapa
+    </button>
+    <button class="nav-btn" id="nav-stats" onclick="switchTab('stats')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Estadísticas
+    </button>
+    <button class="nav-btn" id="nav-list" onclick="switchTab('list')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Lista
+    </button>
+  </nav>
+
+  <script>
+    // --- BASE DE DATOS DE 195 PAÍSES (ISO Numérico: [Nombre, Código ISO2, Continente]) ---
+    const CONTINENTS = {
+      EU: "Europa", AS: "Asia", NA: "América del Norte",
+      SA: "América del Sur", AF: "África", OC: "Oceanía"
+    };
+
+    const COUNTRIES = {
+      "004":["Afganistán","AF","AS"],"008":["Albania","AL","EU"],"276":["Alemania","DE","EU"],"020":["Andorra","AD","EU"],
+      "024":["Angola","AO","AF"],"028":["Antigua y Barbuda","AG","NA"],"682":["Arabia Saudita","SA","AS"],"012":["Argelia","DZ","AF"],
+      "032":["Argentina","AR","SA"],"051":["Armenia","AM","AS"],"036":["Australia","AU","OC"],"040":["Austria","AT","EU"],
+      "031":["Azerbaiyán","AZ","AS"],"044":["Bahamas","BS","NA"],"050":["Bangladés","BD","AS"],"052":["Barbados","BB","NA"],
+      "048":["Baréin","BH","AS"],"056":["Bélgica","BE","EU"],"084":["Belice","BZ","NA"],"204":["Benín","BJ","AF"],
+      "112":["Bielorrusia","BY","EU"],"104":["Birmania (Myanmar)","MM","AS"],"068":["Bolivia","BO","SA"],"070":["Bosnia y Herzegovina","BA","EU"],
+      "072":["Botsuana","BW","AF"],"076":["Brasil","BR","SA"],"096":["Brunéi","BN","AS"],"100":["Bulgaria","BG","EU"],
+      "854":["Burkina Faso","BF","AF"],"108":["Burundi","BI","AF"],"064":["Bután","BT","AS"],"132":["Cabo Verde","CV","AF"],
+      "116":["Camboya","KH","AS"],"120":["Camerún","CM","AF"],"124":["Canadá","CA","NA"],"634":["Catar","QA","AS"],
+      "148":["Chad","TD","AF"],"152":["Chile","CL","SA"],"156":["China","CN","AS"],"196":["Chipre","CY","EU"],
+      "336":["Ciudad del Vaticano","VA","EU"],"170":["Colombia","CO","SA"],"174":["Comoras","KM","AF"],"408":["Corea del Norte","KP","AS"],
+      "410":["Corea del Sur","KR","AS"],"384":["Costa de Marfil","CI","AF"],"188":["Costa Rica","CR","NA"],"191":["Croacia","HR","EU"],
+      "192":["Cuba","CU","NA"],"208":["Dinamarca","DK","EU"],"212":["Dominica","DM","NA"],"218":["Ecuador","EC","SA"],
+      "818":["Egipto","EG","AF"],"222":["El Salvador","SV","NA"],"784":["Emiratos Árabes Unidos","AE","AS"],"232":["Eritrea","ER","AF"],
+      "703":["Eslovaquia","SK","EU"],"705":["Eslovenia","SI","EU"],"724":["España","ES","EU"],"840":["Estados Unidos","US","NA"],
+      "233":["Estonia","EE","EU"],"231":["Etiopía","ET","AF"],"608":["Filipinas","PH","AS"],"246":["Finlandia","FI","EU"],
+      "242":["Fiyi","FJ","OC"],"250":["Francia","FR","EU"],"266":["Gabón","GA","AF"],"270":["Gambia","GM","AF"],
+      "268":["Georgia","GE","AS"],"288":["Ghana","GH","AF"],"308":["Granada","GD","NA"],"300":["Grecia","GR","EU"],
+      "320":["Guatemala","GT","NA"],"324":["Guinea","GN","AF"],"226":["Guinea Ecuatorial","GQ","AF"],"624":["Guinea-Bisáu","GW","AF"],
+      "328":["Guyana","GY","SA"],"332":["Haití","HT","NA"],"340":["Honduras","HN","NA"],"348":["Hungría","HU","EU"],
+      "356":["India","IN","AS"],"360":["Indonesia","ID","AS"],"368":["Irak","IQ","AS"],"364":["Irán","IR","AS"],
+      "372":["Irlanda","IE","EU"],"352":["Islandia","IS","EU"],"584":["Islas Marshall","MH","OC"],"090":["Islas Salomón","SB","OC"],
+      "376":["Israel","IL","AS"],"380":["Italia","IT","EU"],"388":["Jamaica","JM","NA"],"392":["Japón","JP","AS"],
+      "400":["Jordania","JO","AS"],"398":["Kazajistán","KZ","AS"],"404":["Kenia","KE","AF"],"417":["Kirguistán","KG","AS"],
+      "296":["Kiribati","KI","OC"],"414":["Kuwait","KW","AS"],"418":["Laos","LA","AS"],"426":["Lesoto","LS","AF"],
+      "428":["Letonia","LV","EU"],"422":["Líbano","LB","AS"],"430":["Liberia","LR","AF"],"434":["Libia","LY","AF"],
+      "438":["Liechtenstein","LI","EU"],"440":["Lituania","LT","EU"],"442":["Luxemburgo","LU","EU"],"807":["Macedonia del Norte","MK","EU"],
+      "450":["Madagascar","MG","AF"],"458":["Malasia","MY","AS"],"454":["Malaui","MW","AF"],"462":["Maldivas","MV","AS"],
+      "466":["Malí","ML","AF"],"470":["Malta","MT","EU"],"504":["Marruecos","MA","AF"],"480":["Mauricio","MU","AF"],
+      "478":["Mauritania","MR","AF"],"484":["México","MX","NA"],"583":["Micronesia","FM","OC"],"498":["Moldavia","MD","EU"],
+      "492":["Mónaco","MC","EU"],"496":["Mongolia","MN","AS"],"499":["Montenegro","ME","EU"],"508":["Mozambique","MZ","AF"],
+      "516":["Namibia","NA","AF"],"520":["Nauru","NR","OC"],"524":["Nepal","NP","AS"],"558":["Nicaragua","NI","NA"],
+      "562":["Níger","NE","AF"],"566":["Nigeria","NG","AF"],"578":["Noruega","NO","EU"],"554":["Nueva Zelanda","NZ","OC"],
+      "512":["Omán","OM","AS"],"528":["Países Bajos","NL","EU"],"586":["Pakistán","PK","AS"],"585":["Palaos","PW","OC"],
+      "275":["Palestina","PS","AS"],"591":["Panamá","PA","NA"],"598":["Papúa Nueva Guinea","PG","OC"],"600":["Paraguay","PY","SA"],
+      "604":["Perú","PE","SA"],"616":["Polonia","PL","EU"],"620":["Portugal","PT","EU"],"826":["Reino Unido","GB","EU"],
+      "140":["República Centroafricana","CF","AF"],"203":["República Checa","CZ","EU"],"178":["República del Congo","CG","AF"],
+      "180":["República Democrática del Congo","CD","AF"],"214":["República Dominicana","DO","NA"],"646":["Ruanda","RW","AF"],
+      "642":["Rumania","RO","EU"],"643":["Rusia","RU","EU"],"882":["Samoa","WS","OC"],"659":["San Cristóbal y Nieves","KN","NA"],
+      "674":["San Marino","SM","EU"],"670":["San Vicente y las Granadinas","VC","NA"],"662":["Santa Lucía","LC","NA"],
+      "678":["Santo Tomé y Príncipe","ST","AF"],"686":["Senegal","SN","AF"],"688":["Serbia","RS","EU"],"690":["Seychelles","SC","AF"],
+      "694":["Sierra Leona","SL","AF"],"702":["Singapur","SG","AS"],"760":["Siria","SY","AS"],"706":["Somalia","SO","AF"],
+      "144":["Sri Lanka","LK","AS"],"748":["Suazilandia (Esuatini)","SZ","AF"],"710":["Sudáfrica","ZA","AF"],"729":["Sudán","SD","AF"],
+      "728":["Sudán del Sur","SS","AF"],"752":["Suecia","SE","EU"],"756":["Suiza","CH","EU"],"740":["Surinam","SR","SA"],
+      "764":["Tailandia","TH","AS"],"834":["Tanzania","TZ","AF"],"762":["Tayikistán","TJ","AS"],"626":["Timor Oriental","TL","AS"],
+      "768":["Togo","TG","AF"],"776":["Tonga","TO","OC"],"780":["Trinidad y Tobago","TT","NA"],"788":["Túnez","TN","AF"],
+      "795":["Turkmenistán","TM","AS"],"792":["Turquía","TR","AS"],"798":["Tuvalu","TV","OC"],"804":["Ucrania","UA","EU"],
+      "800":["Uganda","UG","AF"],"858":["Uruguay","UY","SA"],"860":["Uzbekistán","UZ","AS"],"548":["Vanuatu","VU","OC"],
+      "862":["Venezuela","VE","SA"],"704":["Vietnam","VN","AS"],"887":["Yemen","YE","AS"],"262":["Yibuti","DJ","AF"],
+      "894":["Zambia","ZM","AF"],"716":["Zimbabue","ZW","AF"]
+    };
+
+    const TOTAL_COUNTRIES = Object.keys(COUNTRIES).length;
+    const STORAGE_KEY = "mi_mapa_viajes_v1";
+
+    // Estado en memoria
+    let userData = loadData();
+    let currentCountryId = null;
+    let currentListFilter = "all";
+    let svg, g, projection, path, zoom, featuresMap = {};
+
+    function getFlag(iso2) {
+      return iso2.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0)));
+    }
+
+    function loadData() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveData() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+      updateCounters();
+    }
+
+    function getStatus(id) {
+      return userData[id]?.status || "none";
+    }
+
+    // --- INICIALIZAR MAPA D3 ---
+    async function initMap() {
+      const container = document.getElementById("map-container");
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+
+      svg = d3.select("#world-map")
+        .attr("viewBox", [0, 0, width, height]);
+
+      g = svg.append("g");
+
+      projection = d3.geoNaturalEarth1()
+        .scale(Math.min(width / 4.2, height / 3.2))
+        .translate([width / 2, height / 2]);
+
+      path = d3.geoPath().projection(projection);
+
+      zoom = d3.zoom()
+        .scaleExtent([1, 14])
+        .on("zoom", (event) => {
+          g.attr("transform", event.transform);
+          g.selectAll(".country").style("stroke-width", (0.5 / Math.sqrt(event.transform.k)) + "px");
+        });
+
+      svg.call(zoom);
+
+      // Salir de modo captura al tocar el mapa
+      svg.on("click", () => {
+        if (document.body.classList.contains("capture-mode")) {
+          document.body.classList.remove("capture-mode");
+        }
+      });
+
+      try {
+        const world = await d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json");
+        const countriesGeo = topojson.feature(world, world.objects.countries).features
+          .filter(d => String(d.id).padStart(3, "0") !== "010"); // Excluir Antártida
+
+        countriesGeo.forEach(f => {
+          const id = String(f.id).padStart(3, "0");
+          if (COUNTRIES[id]) featuresMap[id] = f;
+        });
+
+        g.selectAll("path")
+          .data(countriesGeo)
+          .join("path")
+          .attr("d", path)
+          .attr("id", d => "c-" + String(d.id).padStart(3, "0"))
+          .attr("class", d => {
+            const id = String(d.id).padStart(3, "0");
+            return "country status-" + getStatus(id);
+          })
+          .on("click", (event, d) => {
+            if (document.body.classList.contains("capture-mode")) {
+              document.body.classList.remove("capture-mode");
+              event.stopPropagation();
+              return;
+            }
+            const id = String(d.id).padStart(3, "0");
+            if (COUNTRIES[id]) {
+              event.stopPropagation();
+              openSheet(id);
+            }
+          });
+      } catch (e) {
+        showToast("Conéctate a internet la primera vez para cargar el mapa");
+      }
+
+      updateCounters();
+    }
+
+    function resetZoom() {
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+    }
+
+    function zoomToCountry(id) {
+      const feature = featuresMap[id];
+      if (!feature) return;
+      const container = document.getElementById("map-container");
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      const [[x0, y0], [x1, y1]] = path.bounds(feature);
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const x = (x0 + x1) / 2;
+      const y = (y0 + y1) / 2;
+      const scale = Math.max(1.5, Math.min(8, 0.55 / Math.max(dx / width, dy / height)));
+      const translate = [width / 2 - scale * x, height / 2.3 - scale * y];
+
+      svg.transition().duration(600).call(
+        zoom.transform,
+        d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
+      );
+    }
+
+    // --- TARJETA DE PAÍS (BOTTOM SHEET) ---
+    function openSheet(id, shouldZoom = false) {
+      currentCountryId = id;
+      const [name, iso2, contCode] = COUNTRIES[id];
+      const entry = userData[id] || { status: "none", year: "", note: "" };
+
+      document.getElementById("sheet-flag").textContent = getFlag(iso2);
+      document.getElementById("sheet-name").textContent = name;
+      document.getElementById("sheet-cont").textContent = CONTINENTS[contCode];
+      document.getElementById("country-year").value = entry.year || "";
+      document.getElementById("country-note").value = entry.note || "";
+
+      highlightStatusButtons(entry.status || "none");
+
+      d3.selectAll(".country.selected").classed("selected", false);
+      d3.select("#c-" + id).classed("selected", true);
+
+      if (shouldZoom) zoomToCountry(id);
+
+      document.getElementById("sheet-backdrop").classList.add("open");
+      document.getElementById("bottom-sheet").classList.add("open");
+    }
+
+    function closeSheet() {
+      document.getElementById("sheet-backdrop").classList.remove("open");
+      document.getElementById("bottom-sheet").classList.remove("open");
+      d3.selectAll(".country.selected").classed("selected", false);
+      currentCountryId = null;
+    }
+
+    function highlightStatusButtons(status) {
+      ["visited", "wishlist", "lived", "none"].forEach(s => {
+        const btn = document.getElementById("btn-" + s);
+        btn.className = "status-btn" + (s === status ? " active-" + s : "");
+      });
+    }
+
+    function setCountryStatus(status) {
+      if (!currentCountryId) return;
+      if (!userData[currentCountryId]) userData[currentCountryId] = {};
+      userData[currentCountryId].status = status;
+
+      if (status === "none" && !userData[currentCountryId].note && !userData[currentCountryId].year) {
+        delete userData[currentCountryId];
+      }
+
+      highlightStatusButtons(status);
+      d3.select("#c-" + currentCountryId).attr("class", "country selected status-" + status);
+      saveData();
+      if (document.getElementById("view-list").classList.contains("active")) renderList();
+    }
+
+    function saveCountryMeta() {
+      if (!currentCountryId) return;
+      const year = document.getElementById("country-year").value.trim();
+      const note = document.getElementById("country-note").value;
+      if (!userData[currentCountryId]) userData[currentCountryId] = { status: "none" };
+      userData[currentCountryId].year = year;
+      userData[currentCountryId].note = note;
+      saveData();
+    }
+
+    // --- CONTADORES Y ESTADÍSTICAS ---
+    function updateCounters() {
+      let visited = 0, lived = 0, wishlist = 0;
+      const contTotals = {};
+      const contVisited = {};
+      Object.keys(CONTINENTS).forEach(k => { contTotals[k] = 0; contVisited[k] = 0; });
+
+      for (const [id, info] of Object.entries(COUNTRIES)) {
+        const cont = info[2];
+        contTotals[cont]++;
+        const st = getStatus(id);
+        if (st === "visited") { visited++; contVisited[cont]++; }
+        else if (st === "lived") { lived++; contVisited[cont]++; }
+        else if (st === "wishlist") { wishlist++; }
+      }
+
+      const totalBeen = visited + lived;
+      const pct = ((totalBeen / TOTAL_COUNTRIES) * 100).toFixed(1).replace(".", ",");
+
+      document.getElementById("top-counter").textContent = `${totalBeen} / ${TOTAL_COUNTRIES} · ${pct}%`;
+      document.getElementById("stat-percent").textContent = `${pct}%`;
+      document.getElementById("stat-total-visited").textContent = totalBeen;
+      document.getElementById("stat-wishlist").textContent = wishlist;
+      document.getElementById("stat-lived").textContent = lived;
+
+      const contContainer = document.getElementById("continent-stats");
+      contContainer.innerHTML = Object.entries(CONTINENTS).map(([code, label]) => {
+        const done = contVisited[code];
+        const max = contTotals[code];
+        const p = Math.round((done / max) * 100);
+        return `
+          <div class="cont-card">
+            <div class="cont-row">
+              <span>${label}</span>
+              <span style="color:var(--text-muted)">${done} / ${max} (${p}%)</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" style="width:${p}%"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // --- BUSCADOR RÁPIDO ---
+    function openSearch() {
+      document.getElementById("search-overlay").classList.add("open");
+      const input = document.getElementById("quick-search-input");
+      input.value = "";
+      renderQuickSearch();
+      setTimeout(() => input.focus(), 100);
+    }
+
+    function closeSearch() {
+      document.getElementById("search-overlay").classList.remove("open");
+    }
+
+    function normalizeText(str) {
+      return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    function renderQuickSearch() {
+      const q = normalizeText(document.getElementById("quick-search-input").value.trim());
+      const matches = Object.entries(COUNTRIES)
+        .filter(([, info]) => normalizeText(info[0]).includes(q))
+        .sort((a, b) => a[1][0].localeCompare(b[1][0], "es"))
+        .slice(0, 40);
+
+      document.getElementById("quick-search-results").innerHTML = matches.map(([id, [name, iso2, cont]]) => {
+        const st = getStatus(id);
+        return `
+          <div class="country-row" onclick="selectFromSearch('${id}')">
+            <div class="row-left">
+              <span class="row-flag">${getFlag(iso2)}</span>
+              <div>
+                <div class="row-name">${name}</div>
+                <div class="row-meta">${CONTINENTS[cont]}</div>
+              </div>
+            </div>
+            ${statusBadge(st)}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function selectFromSearch(id) {
+      closeSearch();
+      switchTab("map");
+      openSheet(id, true);
+    }
+
+    // --- VISTA LISTA ---
+    function setListFilter(filter, el) {
+      currentListFilter = filter;
+      document.querySelectorAll("#filter-chips .chip").forEach(c => c.classList.remove("active"));
+      el.classList.add("active");
+      renderList();
+    }
+
+    function statusBadge(st) {
+      if (st === "visited") return '<span class="badge badge-visited">Visitado</span>';
+      if (st === "wishlist") return '<span class="badge badge-wishlist">Quiero ir</span>';
+      if (st === "lived") return '<span class="badge badge-lived">He vivido</span>';
+      return '<span class="badge badge-none">Sin visitar</span>';
+    }
+
+    function renderList() {
+      const q = normalizeText(document.getElementById("list-search").value.trim());
+      const list = Object.entries(COUNTRIES)
+        .filter(([id, info]) => {
+          const matchText = normalizeText(info[0]).includes(q);
+          const st = getStatus(id);
+          const matchFilter = currentListFilter === "all" || st === currentListFilter;
+          return matchText && matchFilter;
+        })
+        .sort((a, b) => a[1][0].localeCompare(b[1][0], "es"));
+
+      const container = document.getElementById("countries-list");
+      if (!list.length) {
+        container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:24px 0;">No hay países en esta categoría.</p>`;
+        return;
+      }
+
+      container.innerHTML = list.map(([id, [name, iso2, cont]]) => {
+        const st = getStatus(id);
+        const year = userData[id]?.year ? ` · ${userData[id].year}` : "";
+        return `
+          <div class="country-row" onclick="openSheet('${id}')">
+            <div class="row-left">
+              <span class="row-flag">${getFlag(iso2)}</span>
+              <div>
+                <div class="row-name">${name}</div>
+                <div class="row-meta">${CONTINENTS[cont]}${year}</div>
+              </div>
+            </div>
+            ${statusBadge(st)}
+          </div>
+        `;
+      }).join("");
+    }
+
+    // --- NAVEGACIÓN ---
+    function switchTab(tab) {
+      document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+      document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+      document.getElementById("view-" + tab).classList.add("active");
+      document.getElementById("nav-" + tab).classList.add("active");
+      if (tab === "stats") updateCounters();
+      if (tab === "list") renderList();
+    }
+
+    // --- MODO CAPTURA ---
+    function enterCaptureMode() {
+      closeSheet();
+      document.body.classList.add("capture-mode");
+      showToast("Modo captura: toca el mapa para salir");
+    }
+
+    // --- COPIA DE SEGURIDAD ---
+    function copyBackup() {
+      const dataStr = JSON.stringify(userData);
+      navigator.clipboard.writeText(dataStr).then(() => {
+        showToast("Copia guardada en el portapapeles");
+      }).catch(() => {
+        document.getElementById("restore-input").value = dataStr;
+        showToast("Copia generada en el recuadro de abajo");
+      });
+    }
+
+    function restoreBackup() {
+      const raw = document.getElementById("restore-input").value.trim();
+      if (!raw) return showToast("Pega primero tu copia de seguridad");
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        userData = parsed;
+        saveData();
+        // Repintar mapa
+        d3.selectAll(".country").attr("class", function() {
+          const id = this.id.replace("c-", "");
+          return "country status-" + getStatus(id);
+        });
+        renderList();
+        document.getElementById("restore-input").value = "";
+        showToast("Datos restaurados correctamente");
+      } catch {
+        showToast("El texto de la copia no es válido");
+      }
+    }
+
+    // --- TOAST ---
+    let toastTimer;
+    function showToast(msg) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+    }
+
+    // Arrancar
+    initMap();
+  </script>
+</body>
+</html>
